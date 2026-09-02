@@ -6,7 +6,7 @@ Base: **rustls 0.23.43** (`fcf61cdbba30913cfd5b40aefa83989c6233812d`)
 
 | File | Purpose |
 |------|---------|
-| `rustls/src/client/fingerprint.rs` | Chrome partial ClientHello profile |
+| `rustls/src/client/fingerprint.rs` | Chrome 133 ClientHello profile |
 | `rustls/src/client/reality.rs` | VLESS REALITY client authentication (session_id + ed25519 verify) |
 
 ## Modified files
@@ -25,7 +25,9 @@ Base: **rustls 0.23.43** (`fcf61cdbba30913cfd5b40aefa83989c6233812d`)
 
 - Server-side TLS stack (ShadowTLS client only).
 - Full uTLS parrots (`firefox`, `safari`, …).
-- RSA/CBC cipher advertisement (rustls aws-lc cannot negotiate them).
+- RSA/CBC cipher implementation. Chrome 133's six legacy RSA/CBC suites are
+  advertised for wire-shape parity, but rustls aws-lc cannot negotiate them if
+  a server selects one.
 
 ## tokio-rustls base
 
