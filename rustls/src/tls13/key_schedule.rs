@@ -171,6 +171,12 @@ impl KeyScheduleHandshakeStart {
         // Decrypt with the peer's key, encrypt with our own key
         new.ks
             .set_decrypter(&new.server_handshake_traffic_secret, common);
+        if let Some(auth) = common.record_layer.tls13_record_auth.as_mut() {
+            auth.backup = Some(
+                new.ks
+                    .derive_decrypter(&new.server_handshake_traffic_secret),
+            );
+        }
 
         if !early_data_enabled {
             // Set the client encryption key for handshakes if early data is not used
@@ -498,12 +504,9 @@ impl KeyScheduleTrafficWithClientFinishedPending {
             .sign_finish(&self.handshake_client_traffic_secret, hs_hash);
 
         // Install keying to read future messages.
-        self.before_finished.ks.set_decrypter(
-            &self
-                .before_finished
-                .current_client_traffic_secret,
-            common,
-        );
+        self.before_finished
+            .ks
+            .set_decrypter(&self.before_finished.current_client_traffic_secret, common);
 
         (self.before_finished, tag)
     }

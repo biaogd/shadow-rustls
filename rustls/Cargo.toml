@@ -23,6 +23,7 @@ autolib = false
 autobins = false
 autoexamples = false
 autotests = false
+
 autobenches = false
 description = "rustls fork with ShadowTLS ClientHello fingerprinting and session-id hooks."
 homepage = "https://github.com/biaogd/shadow-rustls"
@@ -226,3 +227,7 @@ check-cfg = [
     "cfg(read_buf)",
     "cfg(rustls_docsrs)",
 ]
+
+[[test]]
+name = "restls_record_auth"
+path = "tests/restls_record_auth.rs"

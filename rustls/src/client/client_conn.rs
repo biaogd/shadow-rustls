@@ -10,8 +10,8 @@ use super::hs::{self, ClientHelloInput};
 #[cfg(feature = "std")]
 use crate::WantsVerifier;
 use crate::builder::ConfigBuilder;
-use crate::client::{EchMode, EchStatus};
 use crate::client::fingerprint::ClientHelloFingerprint;
+use crate::client::{EchMode, EchStatus};
 use crate::common_state::{CommonState, Protocol, Side};
 use crate::conn::{ConnectionCore, UnbufferedConnectionCommon};
 use crate::crypto::{CryptoProvider, SupportedKxGroup};
@@ -752,6 +752,53 @@ mod connection {
     }
 
     impl ClientConnection {
+        /// Creates a TLS 1.3-only client with Restls-style first-record authentication.
+        ///
+        /// The mask is applied to a copy of the first encrypted handshake record.
+        /// If authentication fails, the original record is decrypted with an
+        /// independent cipher, preserving ordinary TLS handshake behavior. This
+        /// does not replace certificate verification. Callers must check
+        /// [`Self::tls13_record_authenticated`] before releasing proxy data.
+        ///
+        /// # Errors
+        /// Rejects TLS 1.2, early data, and invalid TLS client configuration.
+        pub fn new_with_tls13_record_auth(
+            config: Arc<ClientConfig>,
+            name: ServerName<'static>,
+            session_id_generator: impl Fn(&[u8]) -> [u8; 32] + Send + Sync + 'static,
+            mask_generator: impl Fn(&[u8; 32]) -> [u8; 16] + Send + Sync + 'static,
+        ) -> Result<Self, Error> {
+            if config.supports_version(crate::ProtocolVersion::TLSv1_2, Protocol::Tcp)
+                || config.enable_early_data
+            {
+                return Err(Error::General(
+                    "record authentication requires TLS 1.3 without early data".into(),
+                ));
+            }
+            let mut conn = Self::new_with_session_id_generator(config, name, session_id_generator)?;
+            conn.inner.core.common_state.record_layer.tls13_record_auth =
+                Some(crate::record_layer::Tls13RecordAuth {
+                    mask: Arc::new(mask_generator),
+                    server_mask: None,
+                    authenticated: None,
+                    backup: None,
+                });
+            Ok(conn)
+        }
+
+        /// Whether the modified first handshake record authenticated successfully.
+        /// This is only meaningful after a successful TLS handshake.
+        pub fn tls13_record_authenticated(&self) -> bool {
+            self.inner
+                .core
+                .common_state
+                .record_layer
+                .tls13_record_auth
+                .as_ref()
+                .and_then(|auth| auth.authenticated)
+                == Some(true)
+        }
+
         /// Make a new ClientConnection.  `config` controls how
         /// we behave in the TLS protocol, `name` is the
         /// name of the server we want to talk to.
@@ -797,13 +844,15 @@ mod connection {
             session_id_generator: impl Fn(&[u8]) -> [u8; 32] + Send + Sync + 'static,
         ) -> Result<Self, Error> {
             Ok(Self {
-                inner: ConnectionCommon::from(ConnectionCore::for_client_with_session_id_generator(
-                    config,
-                    name,
-                    ClientExtensionsInput::from_alpn(alpn_protocols),
-                    Protocol::Tcp,
-                    Some(Arc::new(session_id_generator)),
-                )?),
+                inner: ConnectionCommon::from(
+                    ConnectionCore::for_client_with_session_id_generator(
+                        config,
+                        name,
+                        ClientExtensionsInput::from_alpn(alpn_protocols),
+                        Protocol::Tcp,
+                        Some(Arc::new(session_id_generator)),
+                    )?,
+                ),
             })
         }
         /// Returns an `io::Write` implementer you can write bytes to
@@ -878,10 +927,7 @@ mod connection {
                 .data
                 .early_data
                 .check_write(data.len())
-                .map(|sz| {
-                    self.inner
-                        .send_early_plaintext(&data[..sz])
-                })
+                .map(|sz| self.inner.send_early_plaintext(&data[..sz]))
         }
     }
 

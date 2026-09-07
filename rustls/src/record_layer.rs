@@ -5,6 +5,16 @@ use crate::crypto::cipher::{InboundOpaqueMessage, MessageDecrypter, MessageEncry
 use crate::error::Error;
 use crate::log::trace;
 use crate::msgs::message::{InboundPlainMessage, OutboundOpaqueMessage, OutboundPlainMessage};
+use crate::sync::Arc;
+
+type RecordAuthMask = Arc<dyn Fn(&[u8; 32]) -> [u8; 16] + Send + Sync>;
+
+pub(crate) struct Tls13RecordAuth {
+    pub(crate) mask: RecordAuthMask,
+    pub(crate) server_mask: Option<[u8; 16]>,
+    pub(crate) authenticated: Option<bool>,
+    pub(crate) backup: Option<Box<dyn MessageDecrypter>>,
+}
 
 #[derive(PartialEq)]
 enum DirectionState {
@@ -20,6 +30,7 @@ enum DirectionState {
 
 /// Record layer that tracks decryption and encryption keys.
 pub(crate) struct RecordLayer {
+    pub(crate) tls13_record_auth: Option<Tls13RecordAuth>,
     message_encrypter: Box<dyn MessageEncrypter>,
     message_decrypter: Box<dyn MessageDecrypter>,
     write_seq_max: u64,
@@ -39,6 +50,7 @@ impl RecordLayer {
     /// Create new record layer with no keys.
     pub(crate) fn new() -> Self {
         Self {
+            tls13_record_auth: None,
             message_encrypter: <dyn MessageEncrypter>::invalid(),
             message_decrypter: <dyn MessageDecrypter>::invalid(),
             write_seq_max: 0,
@@ -78,10 +90,42 @@ impl RecordLayer {
         let want_close_before_decrypt = self.read_seq == SEQ_SOFT_LIMIT;
 
         let encrypted_len = encr.payload.len();
-        match self
-            .message_decrypter
-            .decrypt(encr, self.read_seq)
-        {
+        let decrypted = if let Some(auth) = self.tls13_record_auth.as_mut() {
+            if let (Some(mask), Some(mut backup)) = (auth.server_mask.take(), auth.backup.take()) {
+                // Never trial-decrypt in the live cipher: providers may mutate
+                // both their state and the ciphertext even on authentication failure.
+                let mut candidate = encr.payload.to_vec();
+                for (byte, mask) in candidate.iter_mut().zip(mask) {
+                    *byte ^= mask;
+                }
+                match backup.decrypt(
+                    InboundOpaqueMessage::new(encr.typ, encr.version, &mut candidate),
+                    self.read_seq,
+                ) {
+                    Ok(plain) => {
+                        let payload = encr.payload.into_inner();
+                        payload[..plain.payload.len()].copy_from_slice(plain.payload);
+                        auth.authenticated = Some(true);
+                        self.message_decrypter = backup;
+                        Ok(InboundPlainMessage {
+                            typ: plain.typ,
+                            version: plain.version,
+                            payload: &payload[..plain.payload.len()],
+                        })
+                    }
+                    Err(Error::DecryptError) => {
+                        auth.authenticated = Some(false);
+                        self.message_decrypter.decrypt(encr, self.read_seq)
+                    }
+                    Err(error) => Err(error),
+                }
+            } else {
+                self.message_decrypter.decrypt(encr, self.read_seq)
+            }
+        } else {
+            self.message_decrypter.decrypt(encr, self.read_seq)
+        };
+        match decrypted {
             Ok(plaintext) => {
                 self.read_seq += 1;
                 if !self.has_decrypted {

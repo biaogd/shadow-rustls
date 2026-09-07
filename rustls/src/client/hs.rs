@@ -508,8 +508,7 @@ fn emit_client_hello_for_retry(
         }
     }
 
-    if reality_state.is_none() {
-        if input.use_session_id_generator && retryreq.is_none() {
+    if reality_state.is_none() && input.use_session_id_generator && retryreq.is_none() {
             if let Some(generator) = input.session_id_generator.as_ref() {
                 if let HandshakePayload::ClientHello(client_hello) = &mut chp.0 {
                     client_hello.session_id = SessionId::zero_filled();
@@ -523,7 +522,6 @@ fn emit_client_hello_for_retry(
                 input.session_id = session_id;
                 input.use_session_id_generator = false;
             }
-        }
     }
 
     let tls13_early_data_key_schedule = match (ech_state.as_mut(), tls13_session) {

@@ -80,6 +80,9 @@ pub(super) fn handle_server_hello(
     input: ClientHelloInput,
 ) -> hs::NextStateOrError<'static> {
     validate_server_hello(cx.common, server_hello)?;
+    if let Some(auth) = cx.common.record_layer.tls13_record_auth.as_mut() {
+        auth.server_mask = Some((auth.mask)(&server_hello.random.0));
+    }
 
     let their_key_share = server_hello
         .key_share
@@ -572,11 +575,7 @@ impl State<ClientConnectionData> for ExpectEncryptedExtensions {
                         .set_handshake_encrypter(cx.common);
                 }
 
-                cx.common.peer_certificates = Some(
-                    resuming_session
-                        .server_cert_chain()
-                        .clone(),
-                );
+                cx.common.peer_certificates = Some(resuming_session.server_cert_chain().clone());
                 cx.common.handshake_kind = Some(HandshakeKind::Resumed);
 
                 // We *don't* reverify the certificate chain here: resumption is a
@@ -1177,10 +1176,7 @@ impl State<ClientConnectionData> for ExpectCertificateVerify<'_> {
                 &self.server_cert.ocsp_response,
                 now,
             )
-            .map_err(|err| {
-                cx.common
-                    .send_cert_verify_error_alert(err)
-            })?;
+            .map_err(|err| cx.common.send_cert_verify_error_alert(err))?;
 
         // 2. Verify their signature on the handshake.
         let handshake_hash = self.transcript.current_hash();
@@ -1192,10 +1188,7 @@ impl State<ClientConnectionData> for ExpectCertificateVerify<'_> {
                 end_entity,
                 cert_verify,
             )
-            .map_err(|err| {
-                cx.common
-                    .send_cert_verify_error_alert(err)
-            })?;
+            .map_err(|err| cx.common.send_cert_verify_error_alert(err))?;
 
         cx.common.peer_certificates = Some(self.server_cert.cert_chain.into_owned());
         self.transcript.add_message(&m);

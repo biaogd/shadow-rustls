@@ -29,7 +29,7 @@
 //! server public keys, resulting in two different shared secrets for different purposes.
 
 use alloc::boxed::Box;
-use alloc::sync::Arc;
+use crate::sync::Arc;
 use alloc::vec::Vec;
 
 use crate::crypto::tls13::Hkdf;
@@ -213,7 +213,7 @@ fn x25519_ecdh(private_key: &[u8; 32], peer_public_key: &[u8; 32]) -> Result<[u8
         agreement::UnparsedPublicKey::new(&agreement::X25519, peer_public_key.as_ref());
 
     let mut shared_secret = [0u8; 32];
-    agreement::agree(&private_key, &peer_public, (), |key_material| {
+    agreement::agree(&private_key, peer_public, (), |key_material| {
         shared_secret.copy_from_slice(key_material);
         Ok(())
     })
@@ -335,7 +335,7 @@ impl RealitySessionState {
 
         // Store auth_key in the slot so RealityServerCertVerifier can use it
         #[cfg(feature = "std")]
-        if let Some(mut slot) = self.config.auth_key_slot.lock().ok() {
+        if let Ok(mut slot) = self.config.auth_key_slot.lock() {
             *slot = Some(auth_key);
         }
 

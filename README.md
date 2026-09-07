@@ -19,6 +19,24 @@ See [docs/PATCHES.md](docs/PATCHES.md) for the full patch list.
 
 ## Patches (summary)
 
+### Restls TLS 1.3 record-authentication hook
+
+`ClientConnection::new_with_tls13_record_auth` combines the existing Session ID
+callback with a ServerRandom-derived mask callback. The first encrypted server
+handshake record is tried using a separate cipher and ciphertext copy. On failed
+authentication the original TLS record is processed with the untouched cipher.
+Certificate verification is not bypassed. Consumers must finish the TLS handshake
+and check `tls13_record_authenticated()` before exposing any proxy application data.
+
+This is a TLS 1.3-only hook, not a complete Restls client. Restls framing, scripts,
+timeouts and protocol policy belong in the consumer. TLS 1.2/early data are rejected.
+
+Focused validation: `cargo test -p rustls --test restls_record_auth` and
+`cargo clippy -p rustls --lib --test restls_record_auth --features ring -- -D warnings`.
+The vendored package omits upstream `testdata`/`test-ca` assets, so the existing
+upstream lib unit tests cannot currently compile; the new integration tests use
+locally generated certificates and do not depend on those missing assets.
+
 ### rustls
 
 - **`client/fingerprint.rs`** — partial Chrome / uTLS `HelloChrome_Auto` ClientHello shaping (cipher list minus aws-lc unsupported suites, GREASE, extension shuffle, BoringGREASEECH).
