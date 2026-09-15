@@ -69,6 +69,7 @@ fn chrome_cipher_suites(grease_cipher: CipherSuite) -> Vec<CipherSuite> {
 }
 
 fn chrome_signature_schemes() -> Vec<SignatureScheme> {
+    // Real Chrome includes ED25519; REALITY server CertificateVerify uses Ed25519.
     vec![
         SignatureScheme::ECDSA_NISTP256_SHA256,
         SignatureScheme::RSA_PSS_SHA256,
@@ -78,6 +79,7 @@ fn chrome_signature_schemes() -> Vec<SignatureScheme> {
         SignatureScheme::RSA_PKCS1_SHA384,
         SignatureScheme::RSA_PSS_SHA512,
         SignatureScheme::RSA_PKCS1_SHA512,
+        SignatureScheme::ED25519,
     ]
 }
 

@@ -40,6 +40,8 @@ open of session_id → mint Ed25519 cert with HMAC-SHA512 tail.
 ## Intentionally not patched
 
 - Full uTLS parrots (`firefox`, `safari`, …).
+- Chrome ClientHello fingerprint advertises `SignatureScheme::ED25519` so REALITY server CertificateVerify can select Ed25519.
+
 - RSA/CBC cipher implementation. Chrome 133's six legacy RSA/CBC suites are
   advertised for wire-shape parity, but rustls aws-lc cannot negotiate them if
   a server selects one.
