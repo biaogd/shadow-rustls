@@ -166,7 +166,7 @@ fn x25519_generate_keypair(
 
 /// Perform X25519 ECDH using x25519-dalek (ring feature)
 #[cfg(all(feature = "ring", not(feature = "aws_lc_rs")))]
-fn x25519_ecdh(private_key: &[u8; 32], peer_public_key: &[u8; 32]) -> Result<[u8; 32], Error> {
+pub(crate) fn x25519_ecdh(private_key: &[u8; 32], peer_public_key: &[u8; 32]) -> Result<[u8; 32], Error> {
     use x25519_dalek::{PublicKey, StaticSecret};
 
     let secret = StaticSecret::from(*private_key);
@@ -203,7 +203,7 @@ fn x25519_generate_keypair(
 
 /// Perform X25519 ECDH using aws-lc-rs
 #[cfg(feature = "aws_lc_rs")]
-fn x25519_ecdh(private_key: &[u8; 32], peer_public_key: &[u8; 32]) -> Result<[u8; 32], Error> {
+pub(crate) fn x25519_ecdh(private_key: &[u8; 32], peer_public_key: &[u8; 32]) -> Result<[u8; 32], Error> {
     use aws_lc_rs::agreement;
 
     let private_key = agreement::PrivateKey::from_private_key(&agreement::X25519, private_key)
@@ -469,6 +469,88 @@ fn aes_256_gcm_encrypt_aws_lc_rs(
     Ok(result)
 }
 
+/// AES-256-GCM decryption for Reality session_id (server side).
+///
+/// Expects ciphertext || tag (32 bytes) and returns the 16-byte plaintext.
+pub(crate) fn aes_256_gcm_decrypt(
+    key: &[u8; 32],
+    nonce: &[u8; 12],
+    aad: &[u8],
+    ciphertext_and_tag: &[u8; 32],
+) -> Result<[u8; 16], Error> {
+    #[cfg(feature = "ring")]
+    {
+        aes_256_gcm_decrypt_ring(key, nonce, aad, ciphertext_and_tag)
+    }
+
+    #[cfg(all(not(feature = "ring"), feature = "aws_lc_rs"))]
+    {
+        aes_256_gcm_decrypt_aws_lc_rs(key, nonce, aad, ciphertext_and_tag)
+    }
+
+    #[cfg(not(any(feature = "ring", feature = "aws_lc_rs")))]
+    {
+        let _ = (key, nonce, aad, ciphertext_and_tag);
+        Err(Error::General(
+            "Reality requires either 'ring' or 'aws_lc_rs' feature".into(),
+        ))
+    }
+}
+
+/// AES-256-GCM decryption using ring
+#[cfg(feature = "ring")]
+fn aes_256_gcm_decrypt_ring(
+    key: &[u8; 32],
+    nonce: &[u8; 12],
+    aad: &[u8],
+    ciphertext_and_tag: &[u8; 32],
+) -> Result<[u8; 16], Error> {
+    use ring::aead;
+
+    let unbound_key = aead::UnboundKey::new(&aead::AES_256_GCM, key)
+        .map_err(|_| Error::General("AES-256-GCM key creation failed".into()))?;
+    let opening_key = aead::LessSafeKey::new(unbound_key);
+
+    let mut in_out = ciphertext_and_tag.to_vec();
+    let nonce = aead::Nonce::assume_unique_for_key(*nonce);
+    let aad = aead::Aad::from(aad);
+
+    let plain = opening_key
+        .open_in_place(nonce, aad, &mut in_out)
+        .map_err(|_| Error::General("AES-256-GCM decryption failed".into()))?;
+
+    let mut result = [0u8; 16];
+    result.copy_from_slice(plain);
+    Ok(result)
+}
+
+/// AES-256-GCM decryption using aws-lc-rs
+#[cfg(all(not(feature = "ring"), feature = "aws_lc_rs"))]
+fn aes_256_gcm_decrypt_aws_lc_rs(
+    key: &[u8; 32],
+    nonce: &[u8; 12],
+    aad: &[u8],
+    ciphertext_and_tag: &[u8; 32],
+) -> Result<[u8; 16], Error> {
+    use aws_lc_rs::aead;
+
+    let unbound_key = aead::UnboundKey::new(&aead::AES_256_GCM, key)
+        .map_err(|_| Error::General("AES-256-GCM key creation failed".into()))?;
+    let opening_key = aead::LessSafeKey::new(unbound_key);
+
+    let mut in_out = ciphertext_and_tag.to_vec();
+    let nonce = aead::Nonce::assume_unique_for_key(*nonce);
+    let aad = aead::Aad::from(aad);
+
+    let plain = opening_key
+        .open_in_place(nonce, aad, &mut in_out)
+        .map_err(|_| Error::General("AES-256-GCM decryption failed".into()))?;
+
+    let mut result = [0u8; 16];
+    result.copy_from_slice(plain);
+    Ok(result)
+}
+
 /// Get current Unix timestamp as u32
 fn current_timestamp(time_provider: &dyn crate::time_provider::TimeProvider) -> Result<u32, Error> {
     let now = time_provider
@@ -503,7 +585,7 @@ pub(crate) fn get_hkdf_sha256_from_config(
 /// REALITY server certs embed an Ed25519 public key. We locate it by searching
 /// for the Ed25519 OID (1.3.101.112 = `06 03 2b 65 70`) followed by a BIT
 /// STRING header (`03 21 00`) and then 32 bytes of public key material.
-fn extract_ed25519_pubkey_from_reality_cert(cert_der: &[u8]) -> Option<[u8; 32]> {
+pub(crate) fn extract_ed25519_pubkey_from_reality_cert(cert_der: &[u8]) -> Option<[u8; 32]> {
     // Ed25519 OID bytes: 06 03 2b 65 70
     const OID: [u8; 5] = [0x06, 0x03, 0x2b, 0x65, 0x70];
     // BIT STRING: 03 (tag) 21 (length=33) 00 (unused bits=0)
@@ -548,7 +630,7 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 
 /// Compute HMAC-SHA512 using ring
 #[cfg(feature = "ring")]
-fn hmac_sha512(key: &[u8; 32], data: &[u8]) -> [u8; 64] {
+pub(crate) fn hmac_sha512(key: &[u8; 32], data: &[u8]) -> [u8; 64] {
     use ring::hmac;
     let k = hmac::Key::new(hmac::HMAC_SHA512, key);
     let tag = hmac::sign(&k, data);
@@ -559,7 +641,7 @@ fn hmac_sha512(key: &[u8; 32], data: &[u8]) -> [u8; 64] {
 
 /// Compute HMAC-SHA512 using aws-lc-rs
 #[cfg(all(not(feature = "ring"), feature = "aws_lc_rs"))]
-fn hmac_sha512(key: &[u8; 32], data: &[u8]) -> [u8; 64] {
+pub(crate) fn hmac_sha512(key: &[u8; 32], data: &[u8]) -> [u8; 64] {
     use aws_lc_rs::hmac;
     let k = hmac::Key::new(hmac::HMAC_SHA512, key);
     let tag = hmac::sign(&k, data);

@@ -283,6 +283,10 @@ mod sni_resolver {
                         cipher_suites: &[],
                         certificate_authorities: None,
                         named_groups: None,
+                        session_id: &[],
+                        random: &[0u8; 32],
+                        key_shares: None,
+                        raw_handshake_message: None,
                     })
                     .is_none()
             );
@@ -305,6 +309,10 @@ mod sni_resolver {
                         cipher_suites: &[],
                         certificate_authorities: None,
                         named_groups: None,
+                        session_id: &[],
+                        random: &[0u8; 32],
+                        key_shares: None,
+                        raw_handshake_message: None,
                     })
                     .is_none()
             );

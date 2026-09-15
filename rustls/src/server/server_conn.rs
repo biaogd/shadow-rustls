@@ -25,7 +25,9 @@ use crate::error::Error;
 use crate::kernel::KernelConnection;
 use crate::log::trace;
 use crate::msgs::base::Payload;
-use crate::msgs::handshake::{ClientHelloPayload, ProtocolName, ServerExtensionsInput};
+use crate::msgs::handshake::{
+    ClientHelloPayload, KeyShareEntry, ProtocolName, ServerExtensionsInput,
+};
 use crate::msgs::message::Message;
 use crate::suites::ExtractedSecrets;
 use crate::sync::Arc;
@@ -148,6 +150,14 @@ pub struct ClientHello<'a> {
     /// [certificate_authorities]: https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.4
     pub(super) certificate_authorities: Option<&'a [DistinguishedName]>,
     pub(super) named_groups: Option<&'a [NamedGroup]>,
+    /// Session ID from the ClientHello (used by REALITY authentication).
+    pub(super) session_id: &'a [u8],
+    /// ClientHello random (32 bytes).
+    pub(super) random: &'a [u8; 32],
+    /// Key shares from the ClientHello, if present.
+    pub(super) key_shares: Option<&'a [KeyShareEntry]>,
+    /// Raw encoded handshake message bytes (type + length + body), if available.
+    pub(super) raw_handshake_message: Option<&'a [u8]>,
 }
 
 impl<'a> ClientHello<'a> {
@@ -239,6 +249,45 @@ impl<'a> ClientHello<'a> {
     /// [`named_groups`]:https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.7
     pub fn named_groups(&self) -> Option<&'a [NamedGroup]> {
         self.named_groups
+    }
+
+    /// Get the ClientHello session ID.
+    pub fn session_id(&self) -> &'a [u8] {
+        self.session_id
+    }
+
+    /// Get the ClientHello random value (32 bytes).
+    pub fn random(&self) -> &'a [u8; 32] {
+        self.random
+    }
+
+    /// Get the raw encoded handshake message (HandshakeType + length + body), if available.
+    pub fn raw_handshake_message(&self) -> Option<&'a [u8]> {
+        self.raw_handshake_message
+    }
+
+    /// Extract the X25519 public key used for REALITY authentication.
+    ///
+    /// Prefers a pure X25519 share; otherwise takes the trailing 32 bytes of an
+    /// X25519MLKEM768 hybrid share (matching Go utls / Xray).
+    pub(crate) fn reality_x25519_public_key(&self) -> Option<[u8; 32]> {
+        let shares = self.key_shares?;
+        for share in shares {
+            if share.group == NamedGroup::X25519 && share.payload.0.len() == 32 {
+                let mut out = [0u8; 32];
+                out.copy_from_slice(&share.payload.0);
+                return Some(out);
+            }
+        }
+        for share in shares {
+            if share.group == NamedGroup::X25519MLKEM768 && share.payload.0.len() >= 32 {
+                let mut out = [0u8; 32];
+                let start = share.payload.0.len() - 32;
+                out.copy_from_slice(&share.payload.0[start..]);
+                return Some(out);
+            }
+        }
+        None
     }
 }
 
@@ -1045,6 +1094,15 @@ impl Accepted {
                 .certificate_authority_names
                 .as_deref(),
             named_groups: payload.named_groups.as_deref(),
+            session_id: payload.session_id.as_ref(),
+            random: &payload.random.0,
+            key_shares: payload.key_shares.as_deref(),
+            raw_handshake_message: match &self.message.payload {
+                crate::msgs::message::MessagePayload::Handshake { encoded, .. } => {
+                    Some(encoded.bytes())
+                }
+                _ => None,
+            },
         };
 
         trace!("Accepted::client_hello(): {ch:#?}");

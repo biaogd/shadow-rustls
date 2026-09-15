@@ -633,6 +633,7 @@ pub mod server {
     mod common;
     pub(crate) mod handy;
     mod hs;
+    pub mod reality;
     mod server_conn;
     #[cfg(test)]
     mod test;
@@ -646,6 +647,10 @@ pub mod server {
     #[cfg(any(feature = "std", feature = "hashbrown"))]
     pub use handy::ServerSessionMemoryCache;
     pub use handy::{AlwaysResolvesServerRawPublicKeys, NoServerSessionStorage};
+    pub use reality::{
+        RealityAuthResult, RealityServerCertResolver, RealityServerConfig, RealityServerError,
+        authenticate_reality_client_hello, mint_reality_certified_key,
+    };
     pub use server_conn::{
         Accepted, ClientHello, ProducesTickets, ResolvesServerCert, ServerConfig,
         ServerConnectionData, StoresServerSessions, UnbufferedServerConnection,

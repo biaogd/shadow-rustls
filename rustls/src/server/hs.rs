@@ -424,6 +424,12 @@ impl ExpectClientHello {
         };
         // Choose a certificate.
         let certkey = {
+            let raw_handshake = match &m.payload {
+                MessagePayload::Handshake { encoded, .. } => {
+                    Some(encoded.bytes())
+                }
+                _ => None,
+            };
             let client_hello = ClientHello {
                 server_name: &cx.data.sni,
                 signature_schemes: &sig_schemes,
@@ -437,6 +443,10 @@ impl ExpectClientHello {
                 cipher_suites: &client_hello.cipher_suites,
                 certificate_authorities,
                 named_groups: client_hello.named_groups.as_deref(),
+                session_id: client_hello.session_id.as_ref(),
+                random: &client_hello.random.0,
+                key_shares: client_hello.key_shares.as_deref(),
+                raw_handshake_message: raw_handshake,
             };
             trace!("Resolving server certificate: {client_hello:#?}");
 
