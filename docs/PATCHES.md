@@ -8,7 +8,6 @@ Base: **rustls 0.23.43** (`fcf61cdbba30913cfd5b40aefa83989c6233812d`)
 |------|---------|
 | `rustls/src/client/fingerprint.rs` | Chrome 133 ClientHello profile |
 | `rustls/src/client/reality.rs` | VLESS REALITY client authentication (session_id + ed25519 verify) |
-| `rustls/src/server/reality.rs` | VLESS REALITY server Accept (session_id decrypt + HMAC-Ed25519 cert) |
 | `rustls/src/server/reality.rs` | VLESS REALITY server Accept (session_id decrypt + HMAC-Ed25519 cert mint) |
 
 ## Modified files
@@ -22,14 +21,13 @@ Base: **rustls 0.23.43** (`fcf61cdbba30913cfd5b40aefa83989c6233812d`)
 | `rustls/src/msgs/handshake.rs` | GREASE in supported versions; `extra_extensions`; fingerprint encode order |
 | `rustls/src/server/server_conn.rs` | `ClientHello` exposes session_id/random/key_shares/raw handshake for REALITY |
 | `rustls/src/server/hs.rs` | Pass encoded handshake bytes into cert resolver `ClientHello` |
-| `rustls/src/server/server_conn.rs` | Extend `ClientHello` with session_id/random/key_shares/raw for REALITY |
-| `rustls/src/server/hs.rs` / `handy.rs` | Populate REALITY ClientHello fields |
+| `rustls/src/server/handy.rs` | Populate REALITY ClientHello fields in tests |
 | `rustls/src/server/test.rs` | `SupportedProtocolVersions { grease: None }` test fix |
 | `tokio-rustls/src/client.rs` | `connect_with_session_id_generator` |
 
 ## REALITY server Accept
 
-Wire via [`RealityServerCertResolver`] as `ServerConfig::cert_resolver`, or call
+Wire via `RealityServerCertResolver` as `ServerConfig::cert_resolver`, or call
 `authenticate_reality_client_hello` + `mint_reality_certified_key` from a custom
 `ResolvesServerCert` / `LazyConfigAcceptor` flow (including tokio-rustls
 `LazyConfigAcceptor`).
